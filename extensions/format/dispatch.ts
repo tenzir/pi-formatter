@@ -93,7 +93,7 @@ async function satisfiesRunnerRequirements(
     const onInvalid = requirement.onInvalid ?? "warn-skip";
     if (onInvalid === "warn-skip") {
       ctx.warn(
-        `[pi-format] ${runner.id} skipped: invalid version requirement in ${requirement.patterns.join(", ")}`,
+        `[pi-formatter] ${runner.id} skipped: invalid version requirement in ${requirement.patterns.join(", ")}`,
       );
     }
 
@@ -110,7 +110,7 @@ async function satisfiesRunnerRequirements(
   const onMismatch = requirement.onMismatch ?? "warn-skip";
   if (onMismatch === "warn-skip") {
     ctx.warn(
-      `[pi-format] ${runner.id} skipped: ${versionCommand} version mismatch (have ${installedVersion ?? "unknown"}, need ${requiredVersion})`,
+      `[pi-formatter] ${runner.id} skipped: ${versionCommand} version mismatch (have ${installedVersion ?? "unknown"}, need ${requiredVersion})`,
     );
   }
 
@@ -159,13 +159,13 @@ async function runRunner(
 
   const result = await ctx.exec(launcher.command, [...launcher.argsPrefix, ...args]);
   if (!result) {
-    ctx.warn(`[pi-format] ${runner.id} failed to execute`);
+    ctx.warn(`[pi-formatter] ${runner.id} failed to execute`);
     return "failed";
   }
 
   if (result.code !== 0) {
     ctx.warn(
-      `[pi-format] ${runner.id} exited with code ${result.code}${summarizeExecResult(result)}`,
+      `[pi-formatter] ${runner.id} exited with code ${result.code}${summarizeExecResult(result)}`,
     );
     return "failed";
   }
@@ -181,7 +181,7 @@ async function runRunnerGroup(
     for (const runnerId of group.runnerIds) {
       const runner = RUNNERS.get(runnerId);
       if (!runner) {
-        ctx.warn(`[pi-format] unknown runner in format plan: ${runnerId}`);
+        ctx.warn(`[pi-formatter] unknown runner in format plan: ${runnerId}`);
         continue;
       }
 
@@ -194,7 +194,7 @@ async function runRunnerGroup(
   for (const runnerId of group.runnerIds) {
     const runner = RUNNERS.get(runnerId);
     if (!runner) {
-      ctx.warn(`[pi-format] unknown runner in format plan: ${runnerId}`);
+      ctx.warn(`[pi-formatter] unknown runner in format plan: ${runnerId}`);
       continue;
     }
 

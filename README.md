@@ -1,4 +1,4 @@
-# 🎨 pi-format
+# 🎨 pi-formatter
 
 A [pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent)
 extension that auto-formats files after every `write` and `edit` tool call.
@@ -10,12 +10,12 @@ formatting is always best-effort.
 ## 📦 Install
 
 ```bash
-pi install npm:pi-format
+pi install npm:pi-formatter
 ```
 
 ## ⚙️ What it does
 
-`pi-format` listens to successful `write` and `edit` tool calls and applies
+`pi-formatter` listens to successful `write` and `edit` tool calls and applies
 best-effort formatting. Formatter failures never block tool results.
 
 Supported file types:

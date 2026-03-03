@@ -1,5 +1,5 @@
 {
-  "name": "pi-format",
+  "name": "pi-formatter",
   "version": "0.1.0",
   "description": "Pi extension that auto-formats files after write/edit tool calls.",
   "type": "module",
@@ -20,11 +20,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tenzir/pi-format.git"
+    "url": "git+https://github.com/tenzir/pi-formatter.git"
   },
-  "homepage": "https://github.com/tenzir/pi-format#readme",
+  "homepage": "https://github.com/tenzir/pi-formatter#readme",
   "bugs": {
-    "url": "https://github.com/tenzir/pi-format/issues"
+    "url": "https://github.com/tenzir/pi-formatter/issues"
   },
   "engines": {
     "node": ">=20.0.0"

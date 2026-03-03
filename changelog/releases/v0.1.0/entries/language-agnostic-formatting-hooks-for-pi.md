@@ -18,5 +18,5 @@ JavaScript/TypeScript.
 Install with:
 
 ```
-pi install npm:pi-format
+pi install npm:pi-formatter
 ```

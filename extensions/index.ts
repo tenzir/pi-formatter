@@ -57,7 +57,7 @@ export default function (pi: ExtensionAPI) {
         await formatFile(pi, ctx.cwd, sourceTool, filePath, commandTimeoutMs);
       } catch (error) {
         console.warn(
-          `[pi-format] Failed to format ${filePath}: ${formatError(error)}`,
+          `[pi-formatter] Failed to format ${filePath}: ${formatError(error)}`,
         );
       }
     });

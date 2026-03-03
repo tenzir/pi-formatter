@@ -1,4 +1,4 @@
-This release introduces pi-format, a pi extension that automatically formats files after every `write` and `edit` tool call. Supported languages include C/C++, CMake, Markdown, JSON, Shell, Python, and JavaScript/TypeScript.
+This release introduces pi-formatter, a pi extension that automatically formats files after every `write` and `edit` tool call. Supported languages include C/C++, CMake, Markdown, JSON, Shell, Python, and JavaScript/TypeScript.
 
 ## 🚀 Features
 
@@ -11,7 +11,7 @@ Supported languages: C/C++, CMake, Markdown, JSON, Shell, Python, and JavaScript
 Install with:
 
 ```
-pi install npm:pi-format
+pi install npm:pi-formatter
 ```
 
 *By @mavam and @codex.*
