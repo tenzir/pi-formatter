@@ -1,0 +1,7 @@
+created: 2026-03-17
+title: Configurable formatting modes and settings command
+intro: >-
+  The formatter now supports a formatMode setting to control whether files are formatted
+  after each tool call or once the agent stops, preventing mid-run model drift. A
+  new /formatter slash command provides an interactive settings editor for all formatter
+  options.
