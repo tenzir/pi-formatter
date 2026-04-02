@@ -1,0 +1,9 @@
+created: 2026-04-02
+title: Rename turn mode to prompt with corrected flush semantics
+intro: >-
+  Renames the formatter's turn mode to prompt and fixes its flush semantics so that
+  files are formatted exactly once when the agent finishes its full run, rather than
+  after each internal LLM iteration.
+source:
+  mode: sync-stable-queue
+  previous_stable: v1.0.0
