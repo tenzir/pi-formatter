@@ -69,11 +69,6 @@ function parseFormatMode(value: unknown, defaultValue: FormatMode): FormatMode {
     return value;
   }
 
-  // Accept "turn" as a deprecated alias for "prompt".
-  if (value === "turn") {
-    return "prompt";
-  }
-
   return defaultValue;
 }
 
