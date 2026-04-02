@@ -22,10 +22,7 @@ files and formats them exactly once when the agent is done:
 }
 ```
 
-This is now the default. Existing configs that set `"formatMode": "turn"` are
-accepted as a deprecated alias and behave identically to `"prompt"`.
-
-The three modes are now:
+This is now the default. The three modes are now:
 
 - `tool` — format immediately after each `write` or `edit`
 - `prompt` — format once when the agent finishes and returns control to you (default)
