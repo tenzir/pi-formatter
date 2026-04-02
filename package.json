@@ -1,7 +1,7 @@
 {
   "name": "pi-formatter",
   "version": "1.0.0",
-  "description": "Pi extension that auto-formats files after write/edit tool calls.",
+  "description": "Pi extension that auto-formats files.",
   "type": "module",
   "files": [
     "extensions",

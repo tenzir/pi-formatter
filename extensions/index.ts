@@ -79,9 +79,9 @@ function getFormatterSettingItems(
       id: "formatMode",
       label: "Format mode",
       description:
-        "Choose whether formatting runs after each successful write/edit tool call, once after each turn, or once when the session shuts down.",
+        "Choose whether formatting runs after each successful write/edit tool call, once after each prompt completes, or once when the session shuts down.",
       currentValue: config.formatMode,
-      values: ["tool", "turn", "session"],
+      values: ["tool", "prompt", "session"],
     },
     {
       id: "commandTimeoutMs",
@@ -112,7 +112,7 @@ type FormatterContext = {
 export default function (pi: ExtensionAPI) {
   let formatterConfig = loadFormatterConfig();
   const formatQueueByPath = new Map<string, Promise<void>>();
-  const pendingTurnPaths = new Set<string>();
+  const pendingPromptPaths = new Set<string>();
   const pendingSessionPaths = new Set<string>();
 
   const enqueueFormat = async (
@@ -208,7 +208,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   const flushPendingPaths = async (ctx: FormatterContext): Promise<void> => {
-    await flushPaths(pendingTurnPaths, ctx);
+    await flushPaths(pendingPromptPaths, ctx);
     await flushPaths(pendingSessionPaths, ctx);
   };
 
@@ -235,32 +235,24 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    if (formatterConfig.formatMode === "turn") {
-      pendingTurnPaths.add(filePath);
+    if (formatterConfig.formatMode === "prompt") {
+      pendingPromptPaths.add(filePath);
       return;
     }
 
     pendingSessionPaths.add(filePath);
   });
 
-  pi.on("turn_end", async (_event, ctx) => {
-    if (pendingTurnPaths.size === 0) {
-      return;
-    }
-
-    await flushPaths(pendingTurnPaths, ctx);
-  });
-
   pi.on("agent_end", async (_event, ctx) => {
-    if (pendingTurnPaths.size === 0) {
+    if (pendingPromptPaths.size === 0) {
       return;
     }
 
-    await flushPaths(pendingTurnPaths, ctx);
+    await flushPaths(pendingPromptPaths, ctx);
   });
 
   pi.on("session_switch", async (_event, ctx) => {
-    if (pendingTurnPaths.size === 0 && pendingSessionPaths.size === 0) {
+    if (pendingPromptPaths.size === 0 && pendingSessionPaths.size === 0) {
       return;
     }
 
@@ -268,7 +260,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    if (pendingTurnPaths.size === 0 && pendingSessionPaths.size === 0) {
+    if (pendingPromptPaths.size === 0 && pendingSessionPaths.size === 0) {
       return;
     }
 

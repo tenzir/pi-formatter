@@ -3,11 +3,11 @@
 A [pi](https://pi.dev) extension that auto-formats files after `write` and
 `edit` tool calls.
 
-By default, formatting runs once per turn. You can also format after each tool
-call or defer formatting until the current session shuts down.
+By default, formatting runs once per prompt — after the agent finishes all its
+work and yields control back to you. You can also format after each individual
+tool call or defer formatting until the session shuts down.
 
-This default changed from the previous immediate-per-tool behavior. If you want
-the old default, set `"formatMode": "tool"`.
+To format after every individual edit instead, set `"formatMode": "tool"`.
 
 ## 📦 Install
 
@@ -22,19 +22,17 @@ best-effort post-processing. Formatter failures never block tool results.
 
 Formatting modes:
 
-- `tool`: format immediately after each successful `write` or `edit` tool
-  result.
-  Use this mode when you want the file on disk to stay formatted after every
-  edit, even while the agent is still working.
-- `turn`: collect files touched during the current turn and format them once at
-  `turn_end`. This is the default.
-  Use this mode when you want to avoid mid-turn formatter drift while still
-  keeping files formatted throughout the run.
+- `tool`: format immediately after each successful `write` or `edit` tool call.
+  Use this mode when you want files on disk to stay formatted after every edit,
+  even while the agent is still working.
+- `prompt`: collect all files touched during the agent run and format them once
+  when the agent finishes and yields control back to you. This is the default.
+  Use this mode to avoid mid-run formatter interruptions while still getting
+  clean files after each response.
 - `session`: collect files touched during the current session and format them
-  once at `session_shutdown`.
-  Use this mode when you want the fewest formatter interruptions and are okay
-  with formatting only when the session exits, reloads, or switches. Interrupted
-  runs stay pending until the session ends or changes.
+  once at session shutdown, reload, or switch.
+  Use this mode when you want the fewest interruptions and are okay with
+  formatting only when the session ends.
 
 Supported file types:
 
@@ -61,14 +59,14 @@ folder (default: `~/.pi/agent`, overridable via `PI_CODING_AGENT_DIR`):
 
 ```json
 {
-  "formatMode": "turn",
+  "formatMode": "prompt",
   "commandTimeoutMs": 10000,
   "hideCallSummariesInTui": false
 }
 ```
 
-- `formatMode`: formatting strategy (`"tool"` | `"turn"` | `"session"`,
-  default: `"turn"`). Use `"tool"` to restore the old immediate default.
+- `formatMode`: formatting strategy (`"tool"` | `"prompt"` | `"session"`,
+  default: `"prompt"`). Use `"tool"` to format after every individual edit.
 - `commandTimeoutMs`: timeout (ms) per formatter command (default: `10000`)
 - `hideCallSummariesInTui`: hide formatter pass/fail summaries in the TUI
   (default: `false`)

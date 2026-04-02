@@ -2,11 +2,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
 
-export type FormatMode = "tool" | "turn" | "session";
+export type FormatMode = "tool" | "prompt" | "session";
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
 const DEFAULT_HIDE_CALL_SUMMARIES_IN_TUI = false;
-const DEFAULT_FORMAT_MODE: FormatMode = "turn";
+export const DEFAULT_FORMAT_MODE: FormatMode = "prompt";
 const FORMATTER_CONFIG_FILE = "formatter.json";
 
 export type FormatterConfigSnapshot = {
@@ -65,8 +65,13 @@ function parseBooleanValue(value: unknown, defaultValue: boolean): boolean {
 }
 
 function parseFormatMode(value: unknown, defaultValue: FormatMode): FormatMode {
-  if (value === "tool" || value === "turn" || value === "session") {
+  if (value === "tool" || value === "prompt" || value === "session") {
     return value;
+  }
+
+  // Accept "turn" as a deprecated alias for "prompt".
+  if (value === "turn") {
+    return "prompt";
   }
 
   return defaultValue;
