@@ -1,0 +1,8 @@
+created: 2026-04-02
+title: Tool, turn, and session formatting modes
+intro: "The formatter now supports three scheduling modes\u2014tool, turn, and session\u2014\
+  with turn as the new default. This replaces the previous afterEachToolCall/afterAgentStop\
+  \ configuration surface."
+source:
+  mode: sync-stable-queue
+  previous_stable: v0.3.0
