@@ -1,7 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { getPathForGit, isWithinDirectory, pathExists } from "./path.js";
+import {
+  getRelativePathOrAbsolute,
+  isWithinDirectory,
+  pathExists,
+} from "./path.js";
 import { hasCommand } from "./system.js";
 import type { FileKind, RequiredMajorVersion, RunnerContext } from "./types.js";
 
@@ -239,12 +243,12 @@ export class FormatRunContext implements RunnerContext {
   }
 
   private async resolveChangedLines(): Promise<string[]> {
-    const gitPath = getPathForGit(this.filePath, this.cwd);
+    const diffPath = getRelativePathOrAbsolute(this.filePath, this.cwd);
     const rangeSet = new Set<string>();
 
     const diffArgSets = [
-      ["diff", "--unified=0", "--", gitPath],
-      ["diff", "--cached", "--unified=0", "--", gitPath],
+      ["diff", "--unified=0", "--", diffPath],
+      ["diff", "--cached", "--unified=0", "--", diffPath],
     ];
 
     for (const args of diffArgSets) {

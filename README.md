@@ -3,9 +3,11 @@
 A [pi](https://pi.dev) extension that auto-formats files after `write` and
 `edit` tool calls.
 
-By default, formatting runs after each successful tool result. It can also be
-configured to defer formatting until the agent stops and yields back to the
-user.
+By default, formatting runs once per turn. You can also format after each tool
+call or defer formatting until the current session shuts down.
+
+This default changed from the previous immediate-per-tool behavior. If you want
+the old default, set `"formatMode": "tool"`.
 
 ## 📦 Install
 
@@ -20,13 +22,19 @@ best-effort post-processing. Formatter failures never block tool results.
 
 Formatting modes:
 
-- `afterEachToolCall`: format immediately after each successful `write` or
-  `edit` tool result. This is the default.
-- `afterAgentStop`: collect touched files during the run and format them once
-  the agent stops. This avoids mid-run model drift from formatter edits.
-
-When `afterAgentStop` is active, interrupted or canceled runs are not formatted
-unless `formatOnAbort` is enabled.
+- `tool`: format immediately after each successful `write` or `edit` tool
+  result.
+  Use this mode when you want the file on disk to stay formatted after every
+  edit, even while the agent is still working.
+- `turn`: collect files touched during the current turn and format them once at
+  `turn_end`. This is the default.
+  Use this mode when you want to avoid mid-turn formatter drift while still
+  keeping files formatted throughout the run.
+- `session`: collect files touched during the current session and format them
+  once at `session_shutdown`.
+  Use this mode when you want the fewest formatter interruptions and are okay
+  with formatting only when the session exits, reloads, or switches. Interrupted
+  runs stay pending until the session ends or changes.
 
 Supported file types:
 
@@ -53,17 +61,14 @@ folder (default: `~/.pi/agent`, overridable via `PI_CODING_AGENT_DIR`):
 
 ```json
 {
-  "formatMode": "afterEachToolCall",
-  "formatOnAbort": false,
+  "formatMode": "turn",
   "commandTimeoutMs": 10000,
   "hideCallSummariesInTui": false
 }
 ```
 
-- `formatMode`: formatting strategy
-  (`"afterEachToolCall"` | `"afterAgentStop"`, default: `"afterEachToolCall"`)
-- `formatOnAbort`: in deferred mode, also format files after an interrupted or
-  canceled run (default: `false`)
+- `formatMode`: formatting strategy (`"tool"` | `"turn"` | `"session"`,
+  default: `"turn"`). Use `"tool"` to restore the old immediate default.
 - `commandTimeoutMs`: timeout (ms) per formatter command (default: `10000`)
 - `hideCallSummariesInTui`: hide formatter pass/fail summaries in the TUI
   (default: `false`)

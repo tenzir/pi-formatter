@@ -1,32 +1,24 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
 
-export type FormatMode = "afterEachToolCall" | "afterAgentStop";
+export type FormatMode = "tool" | "turn" | "session";
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
 const DEFAULT_HIDE_CALL_SUMMARIES_IN_TUI = false;
-const DEFAULT_FORMAT_MODE: FormatMode = "afterEachToolCall";
-const DEFAULT_FORMAT_ON_ABORT = false;
+const DEFAULT_FORMAT_MODE: FormatMode = "turn";
 const FORMATTER_CONFIG_FILE = "formatter.json";
 
 export type FormatterConfigSnapshot = {
   commandTimeoutMs: number;
   hideCallSummariesInTui: boolean;
   formatMode: FormatMode;
-  formatOnAbort: boolean;
 };
 
 export const DEFAULT_FORMATTER_CONFIG: FormatterConfigSnapshot = {
   commandTimeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
   hideCallSummariesInTui: DEFAULT_HIDE_CALL_SUMMARIES_IN_TUI,
   formatMode: DEFAULT_FORMAT_MODE,
-  formatOnAbort: DEFAULT_FORMAT_ON_ABORT,
 };
 
 export function getFormatterConfigPath(): string {
@@ -73,7 +65,7 @@ function parseBooleanValue(value: unknown, defaultValue: boolean): boolean {
 }
 
 function parseFormatMode(value: unknown, defaultValue: FormatMode): FormatMode {
-  if (value === "afterEachToolCall" || value === "afterAgentStop") {
+  if (value === "tool" || value === "turn" || value === "session") {
     return value;
   }
 
@@ -87,7 +79,6 @@ function toFormatterConfigObject(
     commandTimeoutMs: config.commandTimeoutMs,
     hideCallSummariesInTui: config.hideCallSummariesInTui,
     formatMode: config.formatMode,
-    formatOnAbort: config.formatOnAbort,
   };
 }
 
@@ -113,10 +104,6 @@ export function loadFormatterConfig(): FormatterConfigSnapshot {
       DEFAULT_HIDE_CALL_SUMMARIES_IN_TUI,
     ),
     formatMode: parseFormatMode(config.formatMode, DEFAULT_FORMAT_MODE),
-    formatOnAbort: parseBooleanValue(
-      config.formatOnAbort,
-      DEFAULT_FORMAT_ON_ABORT,
-    ),
   };
 }
 
@@ -127,7 +114,6 @@ export function cloneFormatterConfig(
     commandTimeoutMs: config.commandTimeoutMs,
     hideCallSummariesInTui: config.hideCallSummariesInTui,
     formatMode: config.formatMode,
-    formatOnAbort: config.formatOnAbort,
   };
 }
 

@@ -54,8 +54,11 @@ export function isWithinDirectory(
   );
 }
 
-export function getPathForGit(filePath: string, cwd: string): string {
-  const relPath = relative(cwd, filePath);
+export function getRelativePathOrAbsolute(
+  filePath: string,
+  directory: string,
+): string {
+  const relPath = relative(directory, filePath);
   if (
     !relPath ||
     relPath === "." ||

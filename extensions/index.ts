@@ -1,11 +1,15 @@
-import { basename } from "node:path";
 import {
   type ExtensionAPI,
   getSettingsListTheme,
   isEditToolResult,
   isWriteToolResult,
 } from "@mariozechner/pi-coding-agent";
-import { Container, type SettingItem, SettingsList, Text } from "@mariozechner/pi-tui";
+import {
+  Container,
+  type SettingItem,
+  SettingsList,
+  Text,
+} from "@mariozechner/pi-tui";
 import {
   cloneFormatterConfig,
   type FormatterConfigSnapshot,
@@ -15,36 +19,39 @@ import {
 } from "./formatter/config.js";
 import { type FormatCallSummary, formatFile } from "./formatter/dispatch.js";
 import {
-  getPathForGit,
+  getRelativePathOrAbsolute,
   pathExists,
   resolveToolPath,
 } from "./formatter/path.js";
+
+function normalizeSummaryMessage(message: string): string {
+  return message.replace(/\s+/g, " ").trim();
+}
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formatSummaryPath(filePath: string, cwd: string): string {
-  const pathForDisplay = getPathForGit(filePath, cwd);
-  return pathForDisplay.startsWith("/")
-    ? basename(pathForDisplay)
-    : pathForDisplay;
-}
+function formatCallSummary(
+  summary: FormatCallSummary,
+  fileLabel: string,
+): string {
+  const prefix = summary.status === "succeeded" ? "✔︎" : "✘";
+  const base = `${prefix} ${summary.runnerId}: ${fileLabel}`;
 
-function formatCallSuccessSummary(summary: FormatCallSummary): string {
-  return `✔︎ ${summary.runnerId}`;
-}
+  if (summary.status === "succeeded") {
+    return base;
+  }
 
-function formatCallFailureSummary(summary: FormatCallSummary): string {
   if (summary.failureMessage) {
-    return `✘ ${summary.runnerId}: ${summary.failureMessage}`;
+    return `${base}: ${normalizeSummaryMessage(summary.failureMessage)}`;
   }
 
   if (summary.exitCode !== undefined) {
-    return `✘ ${summary.runnerId} (exit ${summary.exitCode})`;
+    return `${base} (exit ${summary.exitCode})`;
   }
 
-  return `✘ ${summary.runnerId}`;
+  return base;
 }
 
 function resolveEventPath(rawPath: unknown, cwd: string): string | undefined {
@@ -72,17 +79,9 @@ function getFormatterSettingItems(
       id: "formatMode",
       label: "Format mode",
       description:
-        "Choose whether formatting runs after each successful write/edit tool call or once after the agent stops.",
+        "Choose whether formatting runs after each successful write/edit tool call, once after each turn, or once when the session shuts down.",
       currentValue: config.formatMode,
-      values: ["afterEachToolCall", "afterAgentStop"],
-    },
-    {
-      id: "formatOnAbort",
-      label: "Format on abort",
-      description:
-        "When enabled, deferred formatting also runs if the model is interrupted or cancelled.",
-      currentValue: config.formatOnAbort ? "on" : "off",
-      values: ["off", "on"],
+      values: ["tool", "turn", "session"],
     },
     {
       id: "commandTimeoutMs",
@@ -102,11 +101,19 @@ function getFormatterSettingItems(
   ];
 }
 
+type FormatterContext = {
+  cwd: string;
+  hasUI: boolean;
+  ui: {
+    notify(message: string, level: "info" | "warning" | "error"): void;
+  };
+};
+
 export default function (pi: ExtensionAPI) {
   let formatterConfig = loadFormatterConfig();
   const formatQueueByPath = new Map<string, Promise<void>>();
-  const candidatePaths = new Set<string>();
-  const successfulPaths = new Set<string>();
+  const pendingTurnPaths = new Set<string>();
+  const pendingSessionPaths = new Set<string>();
 
   const enqueueFormat = async (
     filePath: string,
@@ -130,13 +137,7 @@ export default function (pi: ExtensionAPI) {
 
   const formatResolvedPath = async (
     filePath: string,
-    ctx: {
-      cwd: string;
-      hasUI: boolean;
-      ui: {
-        notify(message: string, level: "info" | "warning" | "error"): void;
-      };
-    },
+    ctx: FormatterContext,
   ): Promise<void> => {
     if (!(await pathExists(filePath))) {
       return;
@@ -144,7 +145,7 @@ export default function (pi: ExtensionAPI) {
 
     const showSummaries = !formatterConfig.hideCallSummariesInTui && ctx.hasUI;
     const notifyWarning = (message: string) => {
-      const normalizedMessage = message.replace(/\s+/g, " ").trim();
+      const normalizedMessage = normalizeSummaryMessage(message);
 
       if (ctx.hasUI) {
         ctx.ui.notify(normalizedMessage, "warning");
@@ -162,12 +163,11 @@ export default function (pi: ExtensionAPI) {
           }
         : undefined;
 
-      const runnerWarningReporter =
-        showSummaries && ctx.hasUI
-          ? () => {
-              // Summary mode already reports failures compactly.
-            }
-          : notifyWarning;
+      const runnerWarningReporter = showSummaries
+        ? () => {
+            // Summary mode already reports failures compactly.
+          }
+        : notifyWarning;
 
       try {
         await formatFile(
@@ -179,7 +179,7 @@ export default function (pi: ExtensionAPI) {
           runnerWarningReporter,
         );
       } catch (error) {
-        const fileLabel = formatSummaryPath(filePath, ctx.cwd);
+        const fileLabel = getRelativePathOrAbsolute(filePath, ctx.cwd);
         notifyWarning(`Failed to format ${fileLabel}: ${formatError(error)}`);
       }
 
@@ -187,43 +187,41 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      for (const summary of summaries) {
-        if (summary.status === "succeeded") {
-          ctx.ui.notify(formatCallSuccessSummary(summary), "info");
-          continue;
-        }
+      const fileLabel = getRelativePathOrAbsolute(filePath, ctx.cwd);
 
-        ctx.ui.notify(formatCallFailureSummary(summary), "info");
+      for (const summary of summaries) {
+        ctx.ui.notify(formatCallSummary(summary, fileLabel), "info");
       }
     });
+  };
+
+  const flushPaths = async (
+    paths: Set<string>,
+    ctx: FormatterContext,
+  ): Promise<void> => {
+    const batch = [...paths];
+    paths.clear();
+
+    for (const filePath of batch) {
+      await formatResolvedPath(filePath, ctx);
+    }
+  };
+
+  const flushPendingPaths = async (ctx: FormatterContext): Promise<void> => {
+    await flushPaths(pendingTurnPaths, ctx);
+    await flushPaths(pendingSessionPaths, ctx);
   };
 
   const reloadFormatterConfig = () => {
     formatterConfig = loadFormatterConfig();
   };
 
-  pi.on("agent_start", async () => {
-    candidatePaths.clear();
-    successfulPaths.clear();
-  });
-
-  pi.on("tool_call", async (event, ctx) => {
-    if (formatterConfig.formatMode !== "afterAgentStop") {
-      return;
-    }
-
-    if (event.toolName !== "write" && event.toolName !== "edit") {
-      return;
-    }
-
-    const filePath = resolveEventPath(event.input.path, ctx.cwd);
-    if (filePath) {
-      candidatePaths.add(filePath);
-    }
-  });
-
   pi.on("tool_result", async (event, ctx) => {
     if (!isWriteToolResult(event) && !isEditToolResult(event)) {
+      return;
+    }
+
+    if (event.isError) {
       return;
     }
 
@@ -232,57 +230,49 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    if (!event.isError) {
-      successfulPaths.add(filePath);
-    }
-
-    if (formatterConfig.formatMode !== "afterEachToolCall" || event.isError) {
+    if (formatterConfig.formatMode === "tool") {
+      await formatResolvedPath(filePath, ctx);
       return;
     }
 
-    await formatResolvedPath(filePath, ctx);
+    if (formatterConfig.formatMode === "turn") {
+      pendingTurnPaths.add(filePath);
+      return;
+    }
+
+    pendingSessionPaths.add(filePath);
   });
 
-  pi.on("agent_end", async (event, ctx) => {
-    if (formatterConfig.formatMode !== "afterAgentStop") {
-      candidatePaths.clear();
-      successfulPaths.clear();
+  pi.on("turn_end", async (_event, ctx) => {
+    if (pendingTurnPaths.size === 0) {
       return;
     }
 
-    let lastAssistantStopReason: string | undefined;
-    for (let index = event.messages.length - 1; index >= 0; index -= 1) {
-      const message = event.messages[index];
-      if (message.role !== "assistant") {
-        continue;
-      }
+    await flushPaths(pendingTurnPaths, ctx);
+  });
 
-      lastAssistantStopReason = message.stopReason;
-      break;
+  pi.on("agent_end", async (_event, ctx) => {
+    if (pendingTurnPaths.size === 0) {
+      return;
     }
 
-    const pathsToFormat = new Set<string>();
-    if (lastAssistantStopReason === "aborted") {
-      if (formatterConfig.formatOnAbort) {
-        for (const filePath of candidatePaths) {
-          pathsToFormat.add(filePath);
-        }
-        for (const filePath of successfulPaths) {
-          pathsToFormat.add(filePath);
-        }
-      }
-    } else {
-      for (const filePath of successfulPaths) {
-        pathsToFormat.add(filePath);
-      }
+    await flushPaths(pendingTurnPaths, ctx);
+  });
+
+  pi.on("session_switch", async (_event, ctx) => {
+    if (pendingTurnPaths.size === 0 && pendingSessionPaths.size === 0) {
+      return;
     }
 
-    candidatePaths.clear();
-    successfulPaths.clear();
+    await flushPendingPaths(ctx);
+  });
 
-    for (const filePath of pathsToFormat) {
-      await formatResolvedPath(filePath, ctx);
+  pi.on("session_shutdown", async (_event, ctx) => {
+    if (pendingTurnPaths.size === 0 && pendingSessionPaths.size === 0) {
+      return;
     }
+
+    await flushPendingPaths(ctx);
   });
 
   pi.registerCommand("formatter", {
@@ -308,10 +298,6 @@ export default function (pi: ExtensionAPI) {
         const syncDraftToSettingsList = (settingsList: SettingsList) => {
           settingsList.updateValue("formatMode", draft.formatMode);
           settingsList.updateValue(
-            "formatOnAbort",
-            draft.formatOnAbort ? "on" : "off",
-          );
-          settingsList.updateValue(
             "commandTimeoutMs",
             String(draft.commandTimeoutMs),
           );
@@ -329,9 +315,8 @@ export default function (pi: ExtensionAPI) {
             const previous = cloneFormatterConfig(draft);
 
             if (id === "formatMode") {
-              draft.formatMode = newValue as FormatterConfigSnapshot["formatMode"];
-            } else if (id === "formatOnAbort") {
-              draft.formatOnAbort = newValue === "on";
+              draft.formatMode =
+                newValue as FormatterConfigSnapshot["formatMode"];
             } else if (id === "commandTimeoutMs") {
               draft.commandTimeoutMs = Number.parseInt(newValue, 10);
             } else if (id === "hideCallSummariesInTui") {
@@ -341,13 +326,26 @@ export default function (pi: ExtensionAPI) {
             try {
               writeFormatterConfigSnapshot(draft);
               reloadFormatterConfig();
+
+              if (
+                id === "formatMode" &&
+                previous.formatMode !== draft.formatMode
+              ) {
+                void flushPendingPaths(ctx).catch((error) => {
+                  const message =
+                    error instanceof Error ? error.message : String(error);
+                  ctx.ui.notify(
+                    `Failed to flush pending formats: ${message}`,
+                    "error",
+                  );
+                });
+              }
             } catch (error) {
               const message =
                 error instanceof Error ? error.message : String(error);
               draft.commandTimeoutMs = previous.commandTimeoutMs;
               draft.hideCallSummariesInTui = previous.hideCallSummariesInTui;
               draft.formatMode = previous.formatMode;
-              draft.formatOnAbort = previous.formatOnAbort;
               syncDraftToSettingsList(settingsList);
               ctx.ui.notify(`Failed to save config: ${message}`, "error");
             }
