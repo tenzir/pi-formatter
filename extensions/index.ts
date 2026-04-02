@@ -135,12 +135,27 @@ export default function (pi: ExtensionAPI) {
     await next;
   };
 
+  const emitSummaryMessages = (
+    messages: string[],
+    ctx: FormatterContext,
+  ): void => {
+    if (
+      !ctx.hasUI ||
+      formatterConfig.hideCallSummariesInTui ||
+      messages.length === 0
+    ) {
+      return;
+    }
+
+    ctx.ui.notify(messages.join("\n"), "info");
+  };
+
   const formatResolvedPath = async (
     filePath: string,
     ctx: FormatterContext,
-  ): Promise<void> => {
+  ): Promise<string[]> => {
     if (!(await pathExists(filePath))) {
-      return;
+      return [];
     }
 
     const showSummaries = !formatterConfig.hideCallSummariesInTui && ctx.hasUI;
@@ -154,6 +169,8 @@ export default function (pi: ExtensionAPI) {
 
       console.warn(normalizedMessage);
     };
+
+    let summaryMessages: string[] = [];
 
     await enqueueFormat(filePath, async () => {
       const summaries: FormatCallSummary[] = [];
@@ -188,28 +205,37 @@ export default function (pi: ExtensionAPI) {
       }
 
       const fileLabel = getRelativePathOrAbsolute(filePath, ctx.cwd);
-
-      for (const summary of summaries) {
-        ctx.ui.notify(formatCallSummary(summary, fileLabel), "info");
-      }
+      summaryMessages = summaries.map((summary) =>
+        formatCallSummary(summary, fileLabel),
+      );
     });
+
+    return summaryMessages;
   };
 
   const flushPaths = async (
     paths: Set<string>,
     ctx: FormatterContext,
-  ): Promise<void> => {
+  ): Promise<string[]> => {
     const batch = [...paths];
     paths.clear();
 
+    const summaryMessages: string[] = [];
+
     for (const filePath of batch) {
-      await formatResolvedPath(filePath, ctx);
+      summaryMessages.push(...(await formatResolvedPath(filePath, ctx)));
     }
+
+    return summaryMessages;
   };
 
   const flushPendingPaths = async (ctx: FormatterContext): Promise<void> => {
-    await flushPaths(pendingPromptPaths, ctx);
-    await flushPaths(pendingSessionPaths, ctx);
+    const summaryMessages = [
+      ...(await flushPaths(pendingPromptPaths, ctx)),
+      ...(await flushPaths(pendingSessionPaths, ctx)),
+    ];
+
+    emitSummaryMessages(summaryMessages, ctx);
   };
 
   const reloadFormatterConfig = () => {
@@ -231,7 +257,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (formatterConfig.formatMode === "tool") {
-      await formatResolvedPath(filePath, ctx);
+      emitSummaryMessages(await formatResolvedPath(filePath, ctx), ctx);
       return;
     }
 
@@ -248,7 +274,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    await flushPaths(pendingPromptPaths, ctx);
+    emitSummaryMessages(await flushPaths(pendingPromptPaths, ctx), ctx);
   });
 
   pi.on("session_switch", async (_event, ctx) => {
