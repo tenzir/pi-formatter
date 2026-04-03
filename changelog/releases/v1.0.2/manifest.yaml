@@ -1,0 +1,9 @@
+created: 2026-04-03
+title: Show prompt-mode formatter summaries for all touched files
+intro: >-
+  This release improves prompt-mode formatting feedback by showing formatter summaries
+  for every touched file. It makes it clear when multiple files were formatted at
+  the end of a run.
+source:
+  mode: sync-stable-queue
+  previous_stable: v1.0.1
