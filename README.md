@@ -34,7 +34,7 @@ Formatting modes:
   Use this mode when you want the fewest interruptions and are okay with
   formatting only when the session ends.
 
-Supported file types:
+Built-in supported file types:
 
 - C/C++
 - CMake
@@ -46,6 +46,22 @@ Supported file types:
 
 For JS/TS and JSON, project-configured tools are preferred first (Biome,
 ESLint), with Prettier as a fallback.
+
+When a project contains `treefmt.toml` or `.treefmt.toml` and `treefmt` is
+installed, `pi-formatter` prefers `treefmt` before the built-in file-type
+runners. This can add support for additional file types declared in the
+project's treefmt config. If treefmt reports that no formatter matches a path,
+`pi-formatter` falls back to the built-in runners.
+
+For flake-based `treefmt-nix` setups, `pi-formatter` detects flake roots that
+contain `treefmt.nix` or `nix/treefmt.nix` and then tries `nix fmt -- <path>`
+before falling back to the built-in runners. These `nix fmt` calls are run with
+`--no-update-lock-file` and `--no-write-lock-file` so formatting does not
+rewrite flake lock files.
+
+When multiple project formatter configs apply, `pi-formatter` uses the nearest
+config root. If `treefmt` and `treefmt-nix` share the same root, `treefmt-nix`
+is tried first.
 
 ## 🎮 Commands
 

@@ -27,7 +27,7 @@ function getPatternRegex(pattern: string): RegExp {
   return regex;
 }
 
-async function findConfigFileFromPath(
+export async function findConfigFileFromPath(
   filePath: string,
   patterns: readonly string[],
   rootDirectory: string,
