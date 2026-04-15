@@ -1,0 +1,9 @@
+created: 2026-04-15
+title: Formatting scope limited to the current directory
+intro: >-
+  This release keeps pi-formatter focused on the workspace you are actively editing.
+  It now ignores files outside the current directory and skips paths that traverse
+  symlinks, so unrelated files do not get reformatted during an agent run.
+source:
+  mode: sync-stable-queue
+  previous_stable: v1.1.0
