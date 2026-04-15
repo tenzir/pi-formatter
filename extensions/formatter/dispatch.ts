@@ -1,8 +1,15 @@
+import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { ExecResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { FormatRunContext, type FormatWarningReporter } from "./context.js";
-import { detectFileKind } from "./path.js";
+import {
+  FormatRunContext,
+  type FormatWarningReporter,
+  findConfigFileFromPath,
+} from "./context.js";
+import { detectFileKind, getRelativePathOrAbsolute } from "./path.js";
 import { FORMAT_PLAN } from "./plan.js";
 import { RUNNERS } from "./runners/index.js";
+import { hasCommand } from "./system.js";
 import {
   isDynamicRunner,
   type ResolvedLauncher,
@@ -11,6 +18,10 @@ import {
   type RunnerGroup,
   type RunnerLauncher,
 } from "./types.js";
+
+const TREEFMT_CONFIG_PATTERNS = ["treefmt.toml", ".treefmt.toml"] as const;
+const TREEFMT_NIX_CONFIG_PATTERNS = ["treefmt.nix", "nix/treefmt.nix"] as const;
+const FLAKE_CONFIG_PATTERNS = ["flake.nix"] as const;
 
 async function resolveLauncher(
   launcher: RunnerLauncher,
@@ -172,6 +183,229 @@ function summarizeFailureMessage(result: ExecResult): string | undefined {
     : `${message.slice(0, MAX_FAILURE_MESSAGE_LENGTH - 1)}…`;
 }
 
+function isTreefmtUnmatchedPathFailure(result: ExecResult): boolean {
+  return /\bno formatter for path:/i.test(`${result.stderr}\n${result.stdout}`);
+}
+
+function shouldFallbackFromTreefmtNixFailure(result: ExecResult): boolean {
+  const output = `${result.stderr}\n${result.stdout}`;
+  return (
+    /cannot connect to socket at '.*daemon-socket\/socket'/i.test(output) ||
+    /Refusing to evaluate package .* because it is not available on the requested hostPlatform/i.test(
+      output,
+    ) ||
+    /failed to create walker: error resolving path/i.test(output) ||
+    /\bpath .* not inside the tree root\b/i.test(output)
+  );
+}
+
+async function flakeUsesTreefmtNix(flakePath: string): Promise<boolean> {
+  try {
+    const content = await readFile(flakePath, "utf8");
+    return /\btreefmt-nix\b/.test(content);
+  } catch {
+    return false;
+  }
+}
+
+async function shouldTryTreefmtNix(
+  filePath: string,
+  flakePath: string,
+): Promise<boolean> {
+  const flakeRoot = dirname(flakePath);
+
+  if (
+    (await findConfigFileFromPath(
+      filePath,
+      TREEFMT_NIX_CONFIG_PATTERNS,
+      flakeRoot,
+    )) !== undefined
+  ) {
+    return true;
+  }
+
+  return flakeUsesTreefmtNix(flakePath);
+}
+
+function reportProjectFormatterFailure(
+  runnerId: string,
+  result: ExecResult,
+  summaryReporter?: FormatCallSummaryReporter,
+  warningReporter?: FormatWarningReporter,
+): void {
+  const failureMessage = summarizeFailureMessage(result);
+  summaryReporter?.({
+    runnerId,
+    status: "failed",
+    exitCode: result.code,
+    failureMessage,
+  });
+
+  const warningMessage = `${runnerId} failed (${result.code})${
+    failureMessage ? `: ${failureMessage}` : ""
+  }`;
+  if (warningReporter) {
+    warningReporter(warningMessage);
+  } else {
+    console.warn(warningMessage);
+  }
+}
+
+function reportProjectFormatterFallback(
+  runnerId: string,
+  result: ExecResult,
+  warningReporter?: FormatWarningReporter,
+): void {
+  const failureMessage = summarizeFailureMessage(result);
+  const warningMessage = `${runnerId} unavailable, falling back to built-in formatters${
+    failureMessage ? `: ${failureMessage}` : ""
+  }`;
+
+  if (warningReporter) {
+    warningReporter(warningMessage);
+    return;
+  }
+
+  console.warn(warningMessage);
+}
+
+async function tryTreefmt(
+  pi: ExtensionAPI,
+  cwd: string,
+  filePath: string,
+  timeoutMs: number,
+  summaryReporter?: FormatCallSummaryReporter,
+  warningReporter?: FormatWarningReporter,
+): Promise<RunnerOutcome> {
+  const configPath = await findConfigFileFromPath(
+    filePath,
+    TREEFMT_CONFIG_PATTERNS,
+    cwd,
+  );
+
+  if (!configPath) {
+    return "skipped";
+  }
+
+  if (!(await hasCommand("treefmt"))) {
+    return "skipped";
+  }
+
+  const targetPath = getRelativePathOrAbsolute(filePath, cwd);
+  const result = await pi.exec(
+    "treefmt",
+    [
+      "--quiet",
+      "--no-cache",
+      "--on-unmatched",
+      "fatal",
+      "--config-file",
+      configPath,
+      targetPath,
+    ],
+    {
+      cwd,
+      timeout: timeoutMs,
+    },
+  );
+
+  if (result.code === 0) {
+    summaryReporter?.({
+      runnerId: "treefmt",
+      status: "succeeded",
+    });
+    return "succeeded";
+  }
+
+  // Treefmt currently reports excluded files as "no formatter for path" too, so
+  // we cannot distinguish an explicit exclude from a genuinely unmatched path
+  // here. In both cases, fall back to the built-in per-language runners.
+  if (isTreefmtUnmatchedPathFailure(result)) {
+    return "skipped";
+  }
+
+  reportProjectFormatterFailure(
+    "treefmt",
+    result,
+    summaryReporter,
+    warningReporter,
+  );
+
+  return "failed";
+}
+
+async function tryTreefmtNix(
+  pi: ExtensionAPI,
+  cwd: string,
+  filePath: string,
+  timeoutMs: number,
+  summaryReporter?: FormatCallSummaryReporter,
+  warningReporter?: FormatWarningReporter,
+): Promise<RunnerOutcome> {
+  const flakePath = await findConfigFileFromPath(
+    filePath,
+    FLAKE_CONFIG_PATTERNS,
+    cwd,
+  );
+
+  if (!flakePath) {
+    return "skipped";
+  }
+
+  if (!(await shouldTryTreefmtNix(filePath, flakePath))) {
+    return "skipped";
+  }
+
+  if (!(await hasCommand("nix"))) {
+    return "skipped";
+  }
+
+  const flakeRoot = dirname(flakePath);
+  const targetPath = getRelativePathOrAbsolute(filePath, flakeRoot);
+  const result = await pi.exec(
+    "nix",
+    [
+      "--extra-experimental-features",
+      "nix-command flakes",
+      "fmt",
+      "--no-update-lock-file",
+      "--no-write-lock-file",
+      "--",
+      targetPath,
+    ],
+    {
+      cwd: flakeRoot,
+      timeout: timeoutMs,
+    },
+  );
+
+  if (result.code === 0) {
+    summaryReporter?.({
+      runnerId: "treefmt-nix",
+      status: "succeeded",
+    });
+    return "succeeded";
+  }
+
+  if (isTreefmtUnmatchedPathFailure(result)) {
+    return "skipped";
+  }
+
+  if (shouldFallbackFromTreefmtNixFailure(result)) {
+    reportProjectFormatterFallback("treefmt-nix", result, warningReporter);
+    return "skipped";
+  }
+
+  reportProjectFormatterFailure(
+    "treefmt-nix",
+    result,
+    summaryReporter,
+    warningReporter,
+  );
+
+  return "failed";
+}
+
 async function runRunner(
   ctx: RunnerContext,
   runner: RunnerDefinition,
@@ -294,6 +528,32 @@ export async function formatFile(
   summaryReporter?: FormatCallSummaryReporter,
   warningReporter?: FormatWarningReporter,
 ): Promise<void> {
+  if (
+    (await tryTreefmt(
+      pi,
+      cwd,
+      filePath,
+      timeoutMs,
+      summaryReporter,
+      warningReporter,
+    )) !== "skipped"
+  ) {
+    return;
+  }
+
+  if (
+    (await tryTreefmtNix(
+      pi,
+      cwd,
+      filePath,
+      timeoutMs,
+      summaryReporter,
+      warningReporter,
+    )) !== "skipped"
+  ) {
+    return;
+  }
+
   const kind = detectFileKind(filePath);
   if (!kind) {
     return;
