@@ -48,15 +48,6 @@ export async function findConfigFileFromPath(
     }
 
     for (const pattern of patterns) {
-      if (pattern.includes("/") && !pattern.includes("*")) {
-        const candidatePath = join(dir, pattern);
-        if (await pathExists(candidatePath)) {
-          return candidatePath;
-        }
-
-        continue;
-      }
-
       const regex = getPatternRegex(pattern);
       const matchingEntry = entries.find((entry) => regex.test(entry));
       if (matchingEntry) {

@@ -53,11 +53,15 @@ runners. This can add support for additional file types declared in the
 project's treefmt config. If treefmt reports that no formatter matches a path,
 `pi-formatter` falls back to the built-in runners.
 
-For flake-based `treefmt-nix` setups, `pi-formatter` also detects
-`treefmt.nix`, `nix/treefmt.nix`, and `flake.nix`-based configurations and then
-tries `nix fmt -- <path>` before falling back to the built-in runners. These
-`nix fmt` calls are run with `--no-update-lock-file` and
-`--no-write-lock-file` so formatting does not rewrite flake lock files.
+For flake-based `treefmt-nix` setups, `pi-formatter` detects flake roots that
+contain `treefmt.nix` or `nix/treefmt.nix` and then tries `nix fmt -- <path>`
+before falling back to the built-in runners. These `nix fmt` calls are run with
+`--no-update-lock-file` and `--no-write-lock-file` so formatting does not
+rewrite flake lock files.
+
+When multiple project formatter configs apply, `pi-formatter` uses the nearest
+config root. If `treefmt` and `treefmt-nix` share the same root, `treefmt-nix`
+is tried first.
 
 ## 🎮 Commands
 

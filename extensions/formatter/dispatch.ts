@@ -1,12 +1,15 @@
-import { readFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExecResult, ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import {
   FormatRunContext,
   type FormatWarningReporter,
   findConfigFileFromPath,
 } from "./context.js";
-import { detectFileKind, getRelativePathOrAbsolute } from "./path.js";
+import {
+  detectFileKind,
+  getRelativePathOrAbsolute,
+  pathExists,
+} from "./path.js";
 import { FORMAT_PLAN } from "./plan.js";
 import { RUNNERS } from "./runners/index.js";
 import { hasCommand } from "./system.js";
@@ -22,6 +25,19 @@ import {
 const TREEFMT_CONFIG_PATTERNS = ["treefmt.toml", ".treefmt.toml"] as const;
 const TREEFMT_NIX_CONFIG_PATTERNS = ["treefmt.nix", "nix/treefmt.nix"] as const;
 const FLAKE_CONFIG_PATTERNS = ["flake.nix"] as const;
+
+type ProjectFormatterCandidate =
+  | {
+      kind: "treefmt";
+      runnerId: "treefmt";
+      rootPath: string;
+      configPath: string;
+    }
+  | {
+      kind: "treefmt-nix";
+      runnerId: "treefmt-nix";
+      rootPath: string;
+    };
 
 async function resolveLauncher(
   launcher: RunnerLauncher,
@@ -199,32 +215,101 @@ function shouldFallbackFromTreefmtNixFailure(result: ExecResult): boolean {
   );
 }
 
-async function flakeUsesTreefmtNix(flakePath: string): Promise<boolean> {
-  try {
-    const content = await readFile(flakePath, "utf8");
-    return /\btreefmt-nix\b/.test(content);
-  } catch {
-    return false;
+async function findConfigFileAtRoot(
+  rootPath: string,
+  patterns: readonly string[],
+): Promise<string | undefined> {
+  for (const pattern of patterns) {
+    const candidatePath = join(rootPath, pattern);
+    if (await pathExists(candidatePath)) {
+      return candidatePath;
+    }
   }
+
+  return undefined;
 }
 
-async function shouldTryTreefmtNix(
+async function resolveTreefmtCandidate(
   filePath: string,
-  flakePath: string,
-): Promise<boolean> {
-  const flakeRoot = dirname(flakePath);
+  cwd: string,
+): Promise<ProjectFormatterCandidate | undefined> {
+  const configPath = await findConfigFileFromPath(
+    filePath,
+    TREEFMT_CONFIG_PATTERNS,
+    cwd,
+  );
 
-  if (
-    (await findConfigFileFromPath(
-      filePath,
-      TREEFMT_NIX_CONFIG_PATTERNS,
-      flakeRoot,
-    )) !== undefined
-  ) {
-    return true;
+  if (!configPath) {
+    return undefined;
   }
 
-  return flakeUsesTreefmtNix(flakePath);
+  return {
+    kind: "treefmt",
+    runnerId: "treefmt",
+    rootPath: dirname(configPath),
+    configPath,
+  };
+}
+
+async function resolveTreefmtNixCandidate(
+  filePath: string,
+  cwd: string,
+): Promise<ProjectFormatterCandidate | undefined> {
+  const flakePath = await findConfigFileFromPath(
+    filePath,
+    FLAKE_CONFIG_PATTERNS,
+    cwd,
+  );
+
+  if (!flakePath) {
+    return undefined;
+  }
+
+  const flakeRoot = dirname(flakePath);
+  const configPath = await findConfigFileAtRoot(
+    flakeRoot,
+    TREEFMT_NIX_CONFIG_PATTERNS,
+  );
+
+  if (!configPath) {
+    return undefined;
+  }
+
+  return {
+    kind: "treefmt-nix",
+    runnerId: "treefmt-nix",
+    rootPath: flakeRoot,
+  };
+}
+
+function compareProjectFormatterCandidates(
+  a: ProjectFormatterCandidate,
+  b: ProjectFormatterCandidate,
+): number {
+  const rootPathLengthDifference = b.rootPath.length - a.rootPath.length;
+  if (rootPathLengthDifference !== 0) {
+    return rootPathLengthDifference;
+  }
+
+  if (a.kind === b.kind) {
+    return 0;
+  }
+
+  return a.kind === "treefmt-nix" ? -1 : 1;
+}
+
+async function resolveProjectFormatterCandidates(
+  filePath: string,
+  cwd: string,
+): Promise<ProjectFormatterCandidate[]> {
+  const candidates = [
+    await resolveTreefmtCandidate(filePath, cwd),
+    await resolveTreefmtNixCandidate(filePath, cwd),
+  ].filter(
+    (candidate): candidate is ProjectFormatterCandidate => candidate !== undefined,
+  );
+
+  return candidates.sort(compareProjectFormatterCandidates);
 }
 
 function reportProjectFormatterFailure(
@@ -257,7 +342,7 @@ function reportProjectFormatterFallback(
   warningReporter?: FormatWarningReporter,
 ): void {
   const failureMessage = summarizeFailureMessage(result);
-  const warningMessage = `${runnerId} unavailable, falling back to built-in formatters${
+  const warningMessage = `${runnerId} unavailable, falling back to other formatters${
     failureMessage ? `: ${failureMessage}` : ""
   }`;
 
@@ -269,24 +354,15 @@ function reportProjectFormatterFallback(
   console.warn(warningMessage);
 }
 
-async function tryTreefmt(
+async function executeTreefmtCandidate(
   pi: ExtensionAPI,
+  candidate: Extract<ProjectFormatterCandidate, { kind: "treefmt" }>,
   cwd: string,
   filePath: string,
   timeoutMs: number,
   summaryReporter?: FormatCallSummaryReporter,
   warningReporter?: FormatWarningReporter,
 ): Promise<RunnerOutcome> {
-  const configPath = await findConfigFileFromPath(
-    filePath,
-    TREEFMT_CONFIG_PATTERNS,
-    cwd,
-  );
-
-  if (!configPath) {
-    return "skipped";
-  }
-
   if (!(await hasCommand("treefmt"))) {
     return "skipped";
   }
@@ -300,7 +376,7 @@ async function tryTreefmt(
       "--on-unmatched",
       "fatal",
       "--config-file",
-      configPath,
+      candidate.configPath,
       targetPath,
     ],
     {
@@ -311,7 +387,7 @@ async function tryTreefmt(
 
   if (result.code === 0) {
     summaryReporter?.({
-      runnerId: "treefmt",
+      runnerId: candidate.runnerId,
       status: "succeeded",
     });
     return "succeeded";
@@ -325,7 +401,7 @@ async function tryTreefmt(
   }
 
   reportProjectFormatterFailure(
-    "treefmt",
+    candidate.runnerId,
     result,
     summaryReporter,
     warningReporter,
@@ -334,33 +410,19 @@ async function tryTreefmt(
   return "failed";
 }
 
-async function tryTreefmtNix(
+async function executeTreefmtNixCandidate(
   pi: ExtensionAPI,
-  cwd: string,
+  candidate: Extract<ProjectFormatterCandidate, { kind: "treefmt-nix" }>,
   filePath: string,
   timeoutMs: number,
   summaryReporter?: FormatCallSummaryReporter,
   warningReporter?: FormatWarningReporter,
 ): Promise<RunnerOutcome> {
-  const flakePath = await findConfigFileFromPath(
-    filePath,
-    FLAKE_CONFIG_PATTERNS,
-    cwd,
-  );
-
-  if (!flakePath) {
-    return "skipped";
-  }
-
-  if (!(await shouldTryTreefmtNix(filePath, flakePath))) {
-    return "skipped";
-  }
-
   if (!(await hasCommand("nix"))) {
     return "skipped";
   }
 
-  const flakeRoot = dirname(flakePath);
+  const flakeRoot = candidate.rootPath;
   const targetPath = getRelativePathOrAbsolute(filePath, flakeRoot);
   const result = await pi.exec(
     "nix",
@@ -381,7 +443,7 @@ async function tryTreefmtNix(
 
   if (result.code === 0) {
     summaryReporter?.({
-      runnerId: "treefmt-nix",
+      runnerId: candidate.runnerId,
       status: "succeeded",
     });
     return "succeeded";
@@ -392,18 +454,58 @@ async function tryTreefmtNix(
   }
 
   if (shouldFallbackFromTreefmtNixFailure(result)) {
-    reportProjectFormatterFallback("treefmt-nix", result, warningReporter);
+    reportProjectFormatterFallback(candidate.runnerId, result, warningReporter);
     return "skipped";
   }
 
   reportProjectFormatterFailure(
-    "treefmt-nix",
+    candidate.runnerId,
     result,
     summaryReporter,
     warningReporter,
   );
 
   return "failed";
+}
+
+async function tryProjectFormatters(
+  pi: ExtensionAPI,
+  cwd: string,
+  filePath: string,
+  timeoutMs: number,
+  summaryReporter?: FormatCallSummaryReporter,
+  warningReporter?: FormatWarningReporter,
+): Promise<RunnerOutcome> {
+  for (const candidate of await resolveProjectFormatterCandidates(
+    filePath,
+    cwd,
+  )) {
+    const outcome =
+      candidate.kind === "treefmt"
+        ? await executeTreefmtCandidate(
+            pi,
+            candidate,
+            cwd,
+            filePath,
+            timeoutMs,
+            summaryReporter,
+            warningReporter,
+          )
+        : await executeTreefmtNixCandidate(
+            pi,
+            candidate,
+            filePath,
+            timeoutMs,
+            summaryReporter,
+            warningReporter,
+          );
+
+    if (outcome !== "skipped") {
+      return outcome;
+    }
+  }
+
+  return "skipped";
 }
 
 async function runRunner(
@@ -529,20 +631,7 @@ export async function formatFile(
   warningReporter?: FormatWarningReporter,
 ): Promise<void> {
   if (
-    (await tryTreefmt(
-      pi,
-      cwd,
-      filePath,
-      timeoutMs,
-      summaryReporter,
-      warningReporter,
-    )) !== "skipped"
-  ) {
-    return;
-  }
-
-  if (
-    (await tryTreefmtNix(
+    (await tryProjectFormatters(
       pi,
       cwd,
       filePath,
