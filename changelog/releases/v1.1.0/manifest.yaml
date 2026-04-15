@@ -1,0 +1,10 @@
+created: 2026-04-15
+title: Treefmt and treefmt-nix project formatter support
+intro: >-
+  This release adds project-level treefmt integration to pi-formatter, including flake-based
+  treefmt-nix setups. Files now follow repository-owned formatter definitions before
+  built-in runners, which broadens language coverage and keeps formatting behavior
+  consistent with each project.
+source:
+  mode: sync-stable-queue
+  previous_stable: v1.0.2
