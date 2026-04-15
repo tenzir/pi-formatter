@@ -20,6 +20,9 @@ pi install npm:pi-formatter
 `pi-formatter` detects file types and runs the appropriate formatter as
 best-effort post-processing. Formatter failures never block tool results.
 
+Formatting is limited to files inside the current working directory. Paths
+outside the current directory and paths that traverse symlinks are ignored.
+
 Formatting modes:
 
 - `tool`: format immediately after each successful `write` or `edit` tool call.

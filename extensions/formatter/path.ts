@@ -1,6 +1,6 @@
-import { access } from "node:fs/promises";
+import { access, lstat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { FileKind } from "./types.js";
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
@@ -69,6 +69,43 @@ export function getRelativePathOrAbsolute(
   }
 
   return relPath;
+}
+
+export async function isPathInFormattingScope(
+  filePath: string,
+  cwd: string,
+): Promise<boolean> {
+  const rootPath = resolve(cwd);
+  const candidatePath = resolve(filePath);
+
+  if (!isWithinDirectory(candidatePath, rootPath)) {
+    return false;
+  }
+
+  const relPath = relative(rootPath, candidatePath);
+  if (!relPath || relPath === ".") {
+    return false;
+  }
+
+  let currentPath = rootPath;
+
+  for (const segment of relPath.split(sep)) {
+    if (segment.length === 0 || segment === ".") {
+      continue;
+    }
+
+    currentPath = join(currentPath, segment);
+
+    try {
+      if ((await lstat(currentPath)).isSymbolicLink()) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function detectFileKind(filePath: string): FileKind | undefined {

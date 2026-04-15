@@ -20,7 +20,7 @@ import {
 import { type FormatCallSummary, formatFile } from "./formatter/dispatch.js";
 import {
   getRelativePathOrAbsolute,
-  pathExists,
+  isPathInFormattingScope,
   resolveToolPath,
 } from "./formatter/path.js";
 
@@ -154,7 +154,7 @@ export default function (pi: ExtensionAPI) {
     filePath: string,
     ctx: FormatterContext,
   ): Promise<string[]> => {
-    if (!(await pathExists(filePath))) {
+    if (!(await isPathInFormattingScope(filePath, ctx.cwd))) {
       return [];
     }
 
@@ -252,7 +252,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     const filePath = resolveEventPath(event.input.path, ctx.cwd);
-    if (!filePath) {
+    if (!filePath || !(await isPathInFormattingScope(filePath, ctx.cwd))) {
       return;
     }
 
