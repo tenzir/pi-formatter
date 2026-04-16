@@ -203,6 +203,15 @@ function isTreefmtUnmatchedPathFailure(result: ExecResult): boolean {
   return /\bno formatter for path:/i.test(`${result.stderr}\n${result.stdout}`);
 }
 
+function isTreefmtNixUnmatchedPathSuccess(result: ExecResult): boolean {
+  // Some treefmt-nix formatter wrappers exit successfully even when the target
+  // path does not match any formatter, but they still report that zero files
+  // were emitted for processing.
+  return /\bemitted\s+0\s+files?\s+for processing\b/i.test(
+    `${result.stderr}\n${result.stdout}`,
+  );
+}
+
 function shouldFallbackFromTreefmtNixFailure(result: ExecResult): boolean {
   const output = `${result.stderr}\n${result.stdout}`;
   return (
@@ -306,7 +315,8 @@ async function resolveProjectFormatterCandidates(
     await resolveTreefmtCandidate(filePath, cwd),
     await resolveTreefmtNixCandidate(filePath, cwd),
   ].filter(
-    (candidate): candidate is ProjectFormatterCandidate => candidate !== undefined,
+    (candidate): candidate is ProjectFormatterCandidate =>
+      candidate !== undefined,
   );
 
   return candidates.sort(compareProjectFormatterCandidates);
@@ -442,6 +452,10 @@ async function executeTreefmtNixCandidate(
   );
 
   if (result.code === 0) {
+    if (isTreefmtNixUnmatchedPathSuccess(result)) {
+      return "skipped";
+    }
+
     summaryReporter?.({
       runnerId: candidate.runnerId,
       status: "succeeded",
