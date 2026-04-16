@@ -1,0 +1,9 @@
+created: 2026-04-16
+title: Accurate treefmt-nix summaries
+intro: >-
+  This release fixes false-positive `treefmt-nix` formatting summaries in Nix-based
+  workspaces. `pi-formatter` now reports success only when a formatter actually processes
+  the file, while still allowing built-in formatter fallbacks for unmatched files.
+source:
+  mode: sync-stable-queue
+  previous_stable: v1.1.1
